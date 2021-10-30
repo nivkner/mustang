@@ -1599,8 +1599,8 @@ static GLOBAL_ALLOCATOR: wee_alloc::WeeAlloc<'static> = wee_alloc::WeeAlloc::INI
 // but it works.
 static MALLOC_METADATA: parking_lot::lock_api::Mutex<
     RawMutex,
-    intrusive_map::BYOAMap<usize, std::alloc::Layout>,
-> = parking_lot::lock_api::Mutex::const_new(RawMutex::INIT, intrusive_map::BYOAMap::new());
+    intrusive_map::IntrusiveMap<usize, std::alloc::Layout>,
+> = parking_lot::lock_api::Mutex::const_new(RawMutex::INIT, intrusive_map::IntrusiveMap::new());
 
 #[no_mangle]
 unsafe extern "C" fn malloc(size: usize) -> *mut c_void {

@@ -5,36 +5,36 @@ use std::alloc::{GlobalAlloc, Layout};
 
 static GLOBAL_ALLOCATOR: wee_alloc::WeeAlloc<'static> = wee_alloc::WeeAlloc::INIT;
 
-struct BYOAPair<K, V> {
+struct IntrusivePair<K, V> {
     link: RBTreeLink,
     key: K,
     value: V,
 }
 
-intrusive_adapter!(BYOAAdapter<K, V> = UnsafeRef<BYOAPair<K,V>>: BYOAPair<K, V> { link: RBTreeLink });
-impl<K, V> KeyAdapter<'_> for BYOAAdapter<K, V>
+intrusive_adapter!(IntrusiveAdapter<K, V> = UnsafeRef<IntrusivePair<K,V>>: IntrusivePair<K, V> { link: RBTreeLink });
+impl<K, V> KeyAdapter<'_> for IntrusiveAdapter<K, V>
 where
     K: Copy,
 {
     type Key = K;
-    fn get_key(&self, pair: &BYOAPair<K, V>) -> K {
+    fn get_key(&self, pair: &IntrusivePair<K, V>) -> K {
         pair.key
     }
 }
 
-pub struct BYOAMap<K, V> {
-    tree: RBTree<BYOAAdapter<K, V>>,
+pub struct IntrusiveMap<K, V> {
+    tree: RBTree<IntrusiveAdapter<K, V>>,
 }
 
-impl<K, V> BYOAMap<K, V> {
+impl<K, V> IntrusiveMap<K, V> {
     pub const fn new() -> Self {
-        BYOAMap {
-            tree: RBTree::new(BYOAAdapter::NEW),
+        IntrusiveMap {
+            tree: RBTree::new(IntrusiveAdapter::NEW),
         }
     }
 }
 
-impl<K, V> BYOAMap<K, V>
+impl<K, V> IntrusiveMap<K, V>
 where
     K: Ord + Copy,
     V: Copy,
@@ -42,9 +42,9 @@ where
     pub fn insert(&mut self, key: K, value: V) {
         unsafe {
             let ptr = GLOBAL_ALLOCATOR
-                .alloc(Layout::new::<BYOAPair<K, V>>())
-                .cast::<BYOAPair<K, V>>();
-            ptr.write(BYOAPair {
+                .alloc(Layout::new::<IntrusivePair<K, V>>())
+                .cast::<IntrusivePair<K, V>>();
+            ptr.write(IntrusivePair {
                 link: RBTreeLink::new(),
                 key,
                 value,
@@ -56,7 +56,7 @@ where
                     if let Some(unsaferef) = cursor.remove() {
                         GLOBAL_ALLOCATOR.dealloc(
                             UnsafeRef::into_raw(unsaferef).cast::<_>(),
-                            Layout::new::<BYOAPair<K, V>>(),
+                            Layout::new::<IntrusivePair<K, V>>(),
                         );
                     }
                 }
@@ -73,7 +73,7 @@ where
             let value = unsaferef.value;
             GLOBAL_ALLOCATOR.dealloc(
                 UnsafeRef::into_raw(unsaferef).cast::<_>(),
-                Layout::new::<BYOAPair<K, V>>(),
+                Layout::new::<IntrusivePair<K, V>>(),
             );
             Some(value)
         }

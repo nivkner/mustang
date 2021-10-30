@@ -22,6 +22,7 @@ sync-resolve = "0.3.0"
 origin = { path = "../origin", default-features = false, version = "^0.1.1-alpha.0"}
 parking_lot = "0.11.2"
 log = "0.4.14"
+wee_alloc = "0.4"
 
 # When requested, check against libc signatures.
 [target.'cfg(mustang_use_libc)'.dependencies]

@@ -29,6 +29,8 @@ mod unwind;
 // the `rsix` APIs directly, which are safer, more ergonomic, and skip this
 // whole layer.
 
+use std::alloc::GlobalAlloc;
+
 use error_str::error_str;
 use memoffset::offset_of;
 #[cfg(feature = "threads")]
@@ -1601,7 +1603,7 @@ unsafe extern "C" fn malloc(size: usize) -> *mut c_void {
     libc!(malloc(size));
 
     let layout = std::alloc::Layout::from_size_align(size, data::ALIGNOF_MAXALIGN_T).unwrap();
-    let ptr = std::alloc::alloc(layout).cast::<_>();
+    let ptr = GLOBAL_ALLOCATOR.alloc(layout).cast::<_>();
 
     MALLOC_METADATA.lock().unwrap().insert(ptr as usize, layout);
 
@@ -1623,7 +1625,7 @@ unsafe extern "C" fn realloc(old: *mut c_void, size: usize) -> *mut c_void {
 
         let new = malloc(size);
         memcpy(new, old, std::cmp::min(size, old_layout.size()));
-        std::alloc::dealloc(old.cast::<_>(), old_layout);
+        GLOBAL_ALLOCATOR.dealloc(old.cast::<_>(), old_layout);
         new
     }
 }
@@ -1653,7 +1655,7 @@ unsafe extern "C" fn posix_memalign(
     libc!(posix_memalign(memptr, alignment, size));
 
     let layout = std::alloc::Layout::from_size_align(size, alignment).unwrap();
-    let ptr = std::alloc::alloc(layout).cast::<_>();
+    let ptr = GLOBAL_ALLOCATOR.alloc(layout).cast::<_>();
 
     MALLOC_METADATA.lock().unwrap().insert(ptr as usize, layout);
 
@@ -1671,7 +1673,7 @@ unsafe extern "C" fn free(ptr: *mut c_void) {
 
     let remove = MALLOC_METADATA.lock().unwrap().remove(&(ptr as usize));
     let layout = remove.unwrap();
-    std::alloc::dealloc(ptr.cast::<_>(), layout);
+    GLOBAL_ALLOCATOR.dealloc(ptr.cast::<_>(), layout);
 }
 
 // mem

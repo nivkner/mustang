@@ -1624,6 +1624,7 @@ unsafe extern "C" fn realloc(old: *mut c_void, size: usize) -> *mut c_void {
         let remove = MALLOC_METADATA.lock().remove(&(old as usize));
         let old_layout = remove.unwrap();
         if old_layout.size() >= size {
+            MALLOC_METADATA.lock().insert(old as usize, old_layout);
             return old;
         }
 

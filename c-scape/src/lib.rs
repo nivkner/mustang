@@ -15,6 +15,7 @@ mod error_str;
 mod raw_mutex;
 // Unwinding isn't supported on 32-bit arm yet.
 // On aarch64 and riscg64 unwinding currently depends on a pre-release gimli.
+mod intrusive_map;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm", target_arch = "riscv64"))]
 mod unwind;
 
@@ -1592,11 +1593,13 @@ unsafe extern "C" fn eventfd(initval: c_uint, flags: c_int) -> c_int {
 
 // malloc
 
+static GLOBAL_ALLOCATOR: wee_alloc::WeeAlloc<'static> = wee_alloc::WeeAlloc::INIT;
+
 // Keep track of every `malloc`'d pointer. This isn't amazingly efficient,
 // but it works.
 static MALLOC_METADATA: once_cell::sync::Lazy<
-    std::sync::Mutex<std::collections::HashMap<usize, std::alloc::Layout>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    std::sync::Mutex<intrusive_map::BYOAMap<usize, std::alloc::Layout>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(intrusive_map::BYOAMap::new()));
 
 #[no_mangle]
 unsafe extern "C" fn malloc(size: usize) -> *mut c_void {

@@ -37,7 +37,7 @@ use memoffset::offset_of;
 #[cfg(feature = "threads")]
 use origin::Thread;
 #[cfg(feature = "threads")]
-use parking_lot::lock_api::RawRwLock;
+use parking_lot::lock_api::{RawMutex as _, RawRwLock};
 #[cfg(feature = "threads")]
 use raw_mutex::RawMutex;
 use rsix::fs::{cwd, openat, AtFlags, FdFlags, Mode, OFlags};
@@ -1597,9 +1597,10 @@ static GLOBAL_ALLOCATOR: wee_alloc::WeeAlloc<'static> = wee_alloc::WeeAlloc::INI
 
 // Keep track of every `malloc`'d pointer. This isn't amazingly efficient,
 // but it works.
-static MALLOC_METADATA: once_cell::sync::Lazy<
-    std::sync::Mutex<intrusive_map::BYOAMap<usize, std::alloc::Layout>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(intrusive_map::BYOAMap::new()));
+static MALLOC_METADATA: parking_lot::lock_api::Mutex<
+    RawMutex,
+    intrusive_map::BYOAMap<usize, std::alloc::Layout>,
+> = parking_lot::lock_api::Mutex::const_new(RawMutex::INIT, intrusive_map::BYOAMap::new());
 
 #[no_mangle]
 unsafe extern "C" fn malloc(size: usize) -> *mut c_void {
@@ -1608,7 +1609,7 @@ unsafe extern "C" fn malloc(size: usize) -> *mut c_void {
     let layout = std::alloc::Layout::from_size_align(size, data::ALIGNOF_MAXALIGN_T).unwrap();
     let ptr = GLOBAL_ALLOCATOR.alloc(layout).cast::<_>();
 
-    MALLOC_METADATA.lock().unwrap().insert(ptr as usize, layout);
+    MALLOC_METADATA.lock().insert(ptr as usize, layout);
 
     ptr
 }
@@ -1620,7 +1621,7 @@ unsafe extern "C" fn realloc(old: *mut c_void, size: usize) -> *mut c_void {
     if old.is_null() {
         malloc(size)
     } else {
-        let remove = MALLOC_METADATA.lock().unwrap().remove(&(old as usize));
+        let remove = MALLOC_METADATA.lock().remove(&(old as usize));
         let old_layout = remove.unwrap();
         if old_layout.size() >= size {
             return old;
@@ -1660,7 +1661,7 @@ unsafe extern "C" fn posix_memalign(
     let layout = std::alloc::Layout::from_size_align(size, alignment).unwrap();
     let ptr = GLOBAL_ALLOCATOR.alloc(layout).cast::<_>();
 
-    MALLOC_METADATA.lock().unwrap().insert(ptr as usize, layout);
+    MALLOC_METADATA.lock().insert(ptr as usize, layout);
 
     *memptr = ptr;
     0
@@ -1674,7 +1675,7 @@ unsafe extern "C" fn free(ptr: *mut c_void) {
         return;
     }
 
-    let remove = MALLOC_METADATA.lock().unwrap().remove(&(ptr as usize));
+    let remove = MALLOC_METADATA.lock().remove(&(ptr as usize));
     let layout = remove.unwrap();
     GLOBAL_ALLOCATOR.dealloc(ptr.cast::<_>(), layout);
 }
@@ -3359,7 +3360,7 @@ unsafe extern "C" fn pthread_mutex_init(
     libc!(pthread_mutex_init(same_ptr_mut(mutex), same_ptr(mutexattr)));
     let kind = (*mutexattr).kind.load(SeqCst);
     match kind as i32 {
-        data::PTHREAD_MUTEX_NORMAL => ptr::write(&mut (*mutex).u.normal, RawMutex::new()),
+        data::PTHREAD_MUTEX_NORMAL => ptr::write(&mut (*mutex).u.normal, RawMutex::INIT),
         data::PTHREAD_MUTEX_RECURSIVE => ptr::write(
             &mut (*mutex).u.reentrant,
             parking_lot::lock_api::RawReentrantMutex::<parking_lot::RawMutex, GetThreadId>::INIT,

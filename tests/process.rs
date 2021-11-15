@@ -107,6 +107,8 @@ fn stdout_works() {
 #[test]
 #[cfg_attr(any(windows, target_os = "android", target_os = "vxworks"), ignore)]
 fn set_current_dir_works() {
+    #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+    compile_error!("shouldn't compile on ARM");
     let mut cmd = Command::new("/bin/sh");
     cmd.arg("-c")
         .arg("pwd")

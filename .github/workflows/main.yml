@@ -7,44 +7,13 @@ on:
   pull_request:
 
 jobs:
-  rustfmt:
-    name: Rustfmt
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        submodules: true
-    - uses: ./.github/actions/install-rust
-      with:
-        toolchain: stable
-    - run: cargo fmt --all -- --check
-
   test:
     name: Test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        build: [ubuntu, ubuntu-18.04, i686-linux, aarch64-linux, riscv64-linux, arm-linux]
+        build: [aarch64-linux, riscv64-linux, arm-linux]
         include:
-          - build: ubuntu
-            os: ubuntu-latest
-            rust: nightly
-            host_target: x86_64-unknown-linux-gnu
-            mustang_target: x86_64-mustang-linux-gnu
-          - build: ubuntu-18.04
-            os: ubuntu-18.04
-            rust: nightly
-            host_target: x86_64-unknown-linux-gnu
-            mustang_target: x86_64-mustang-linux-gnu
-          - build: i686-linux
-            os: ubuntu-latest
-            rust: nightly
-            target: i686-unknown-linux-gnu
-            gcc_package: gcc-i686-linux-gnu
-            gcc: i686-linux-gnu-gcc
-            libc_package: libc-dev-i386-cross
-            host_target: i686-unknown-linux-gnu
-            mustang_target: i686-mustang-linux-gnu
           - build: aarch64-linux
             os: ubuntu-latest
             rust: nightly
@@ -52,9 +21,7 @@ jobs:
             gcc_package: gcc-aarch64-linux-gnu
             gcc: aarch64-linux-gnu-gcc
             qemu: qemu-aarch64 -L /usr/aarch64-linux-gnu
-            qemu_target: aarch64-linux-user
             host_target: aarch64-unknown-linux-gnu
-            mustang_target: aarch64-mustang-linux-gnu
           - build: riscv64-linux
             os: ubuntu-latest
             rust: nightly
@@ -62,9 +29,7 @@ jobs:
             gcc_package: gcc-riscv64-linux-gnu
             gcc: riscv64-linux-gnu-gcc
             qemu: qemu-riscv64 -L /usr/riscv64-linux-gnu
-            qemu_target: riscv64-linux-user
             host_target: riscv64gc-unknown-linux-gnu
-            mustang_target: riscv64gc-mustang-linux-gnu
           - build: arm-linux
             os: ubuntu-latest
             rust: nightly
@@ -72,9 +37,6 @@ jobs:
             gcc_package: gcc-arm-linux-gnueabi
             gcc: arm-linux-gnueabi-gcc
             qemu: qemu-arm -L /usr/arm-linux-gnueabi
-            qemu_target: arm-linux-user
-            host_target: armv5te-unknown-linux-gnueabi
-            mustang_target: armv5te-mustang-linux-gnueabi
     steps:
     - uses: actions/checkout@v2
       with:
@@ -83,82 +45,19 @@ jobs:
       with:
         toolchain: ${{ matrix.rust }}
 
-    - name: Configure Cargo target
+    - name: Configure target
       run: |
-        echo CARGO_BUILD_TARGET=${{ matrix.target }} >> $GITHUB_ENV
         rustup target add ${{ matrix.target }}
-      if: matrix.target != ''
 
-    - name: Install cross-compilation tools
+    - name: Install cross-compilation tools and libraries
       run: |
         set -ex
         sudo apt-get update
-        sudo apt-get install -y ${{ matrix.gcc_package }} ninja-build
-        upcase=$(echo ${{ matrix.host_target }} | awk '{ print toupper($0) }' | sed 's/-/_/g')
-        echo CARGO_TARGET_${upcase}_LINKER=${{ matrix.gcc }} >> $GITHUB_ENV
-        upcase=$(echo ${{ matrix.mustang_target }} | awk '{ print toupper($0) }' | sed 's/-/_/g')
-        echo CARGO_TARGET_${upcase}_LINKER=${{ matrix.gcc }} >> $GITHUB_ENV
-        # Configure the `*-mustang` C compiler for the `cc` crate per
-        # <https://github.com/sunfishcode/mustang/blob/main/README.md#the-c-runtime>
-        echo CC_${{ matrix.mustang_target }}=${{ matrix.gcc }} >> $GITHUB_ENV
-        echo CC_${{ matrix.target }}=${{ matrix.gcc }} >> $GITHUB_ENV
-      if: matrix.gcc_package != '' && matrix.os == 'ubuntu-latest'
+        sudo apt-get install -y ${{ matrix.gcc_package }} ${{ matrix.libc_package }} qemu-user
 
-    - name: Install cross-compilation libraries
+    - name: run program
       run: |
-        set -ex
-        sudo apt-get update
-        sudo apt-get install -y ${{ matrix.libc_package }}
-      if: matrix.libc_package != '' && matrix.os == 'ubuntu-latest'
-
-    - name: Install qemu
-      run: |
-        set -ex
-        # Download and build qemu from source since the most recent release is
-        # way faster at arm emulation than the current version github actions'
-        # ubuntu image uses. Disable as much as we can to get it to build
-        # quickly.
-        curl https://download.qemu.org/qemu-6.1.0.tar.xz | tar xJf -
-        cd qemu-6.1.0
-        ./configure --target-list=${{ matrix.qemu_target }} --prefix=$HOME/qemu --disable-tools --disable-slirp --disable-fdt --disable-capstone --disable-docs
-        make -j$(nproc) install
-
-        # Configure Cargo for cross compilation and tell it how it can run
-        # cross executables
-        upcase=$(echo ${{ matrix.host_target }} | awk '{ print toupper($0) }' | sed 's/-/_/g')
-        echo CARGO_TARGET_${upcase}_RUNNER=$HOME/qemu/bin/${{ matrix.qemu }} >> $GITHUB_ENV
-        upcase=$(echo ${{ matrix.mustang_target }} | awk '{ print toupper($0) }' | sed 's/-/_/g')
-        echo CARGO_TARGET_${upcase}_RUNNER=$HOME/qemu/bin/${{ matrix.qemu }} >> $GITHUB_ENV
-      if: matrix.qemu != '' && matrix.os == 'ubuntu-latest'
-
-    - name: Install rust-src
-      run: |
-        rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
-
-    - name: cargo check non-mustang
-      run: |
-        # Check that the code compiles on non-mustang targets.
-        cargo +nightly check
-
-    - name: cargo test
-      run: |
-        cargo +nightly test --verbose --target=specs/x86_64-mustang-linux-gnu.json -Z build-std
-        # Run the tests using the host target rather than the mustang target,
-        # as mustang doesn't yet support everything needed by the test harness.
-        # The test uses a mustang target as needed for the actual test cases.
-        cargo +nightly test --verbose
-      env:
-        RUST_BACKTRACE: 1
-
-    - name: cargo test --release
-      run: |
-        cargo +nightly test --verbose --release --target=specs/x86_64-mustang-linux-gnu.json -Z build-std
-        cargo +nightly test --verbose --release
-      env:
-        RUST_BACKTRACE: 1
-
-    - name: test mustang_use_libc
-      run: |
-        RUSTFLAGS=--cfg=mustang_use_libc cargo +nightly check --workspace
+        rustc src/main.rs --target=${{ matrix.target }} -Clinker=${{ matrix.gcc }}
+        ${{ matrix.qemu }} main
       env:
         RUST_BACKTRACE: 1

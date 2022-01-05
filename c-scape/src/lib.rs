@@ -176,12 +176,12 @@ unsafe extern "C" fn fstat(_fd: c_int, _stat: *mut rustix::fs::Stat) -> c_int {
 }
 
 #[no_mangle]
-unsafe extern "C" fn fstat64(fd: c_int, stat_: *mut rustix::fs::Stat) -> c_int {
+unsafe extern "C" fn fstat64(fd: c_int, stat_: *mut u8) -> c_int {
     libc!(libc::fstat64(fd, same_ptr_mut(stat_)));
 
     match convert_res(rustix::fs::fstat(&BorrowedFd::borrow_raw_fd(fd))) {
         Some(r) => {
-            *stat_ = r;
+            *stat_.cast::<rustix::fs::Stat>() = r;
             0
         }
         None => -1,

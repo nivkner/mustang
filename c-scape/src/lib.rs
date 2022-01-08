@@ -170,9 +170,15 @@ unsafe extern "C" fn stat64(pathname: *const c_char, stat_: *mut rustix::fs::Sta
 }
 
 #[no_mangle]
-unsafe extern "C" fn fstat(_fd: c_int, _stat: *mut rustix::fs::Stat) -> c_int {
-    libc!(libc::fstat(_fd, same_ptr_mut(_stat)));
-    unimplemented!("fstat")
+unsafe extern "C" fn fstat(fd: c_int, stat: *mut libc::stat) -> c_int {
+    libc!(libc::fstat(fd, stat));
+    match convert_res(rustix::fs::fstat(&BorrowedFd::borrow_raw_fd(fd))) {
+        Some(r) => {
+            *stat = r;
+            0
+        }
+        None => -1,
+    }
 }
 
 #[no_mangle]
